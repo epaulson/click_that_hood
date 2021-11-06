@@ -44,7 +44,7 @@ var MIN_POINT_RADIUS = 16;
 var MAPBOX_MAP_ID = "codeforamerica.map-mx0iqvk2";
 
 var ADD_YOUR_CITY_URL =
-  "https://github.com/codeforamerica/click_that_hood/wiki/How-to-add-a-city-to-Click-That-%E2%80%99Hood";
+  "https://github.com/codeforgermany/click_that_hood/wiki/How-to-add-a-city-to-Click-That-%E2%80%99Hood";
 
 var MAPS_DEFAULT_SCALE = 512;
 var D3_DEFAULT_SCALE = 500;
@@ -1836,27 +1836,30 @@ function onResize() {
 }
 
 function getCityId() {
-  var finalSlash = location.href.lastIndexOf("/");
-  var cityMatch = location.href.substr(finalSlash + 1);
-
-  if (cityMatch.length === 0) {
-    return false;
-  }
+  var finalSlash = location.pathname.lastIndexOf("/");
+  var cityMatch = location.pathname.substr(finalSlash + 1);
 
   if (CITY_DATA[cityMatch]) {
     return cityMatch;
   }
 
-  // could be in parameter
-  const urlParams = new URLSearchParams(cityMatch);
+  if (location.search) {
+    const search = location.search.slice(1);
+    if (CITY_DATA[search]) {
+      return search;
+    }
 
-  const cityParam = urlParams.get("city");
-  if (CITY_DATA[cityParam]) {
-    return cityParam;
-  }
-  const locationParam = urlParams.get("location");
-  if (CITY_DATA[locationParam]) {
-    return locationParam;
+    // could be in parameter
+    const urlParams = new URLSearchParams(location.search);
+
+    const cityParam = urlParams.get("city");
+    if (CITY_DATA[cityParam]) {
+      return cityParam;
+    }
+    const locationParam = urlParams.get("location");
+    if (CITY_DATA[locationParam]) {
+      return locationParam;
+    }
   }
 
   return false;
@@ -1873,7 +1876,7 @@ function updateFooter() {
 
   if (CITY_DATA[cityId].authorTwitter) {
     document.querySelector("footer .author a").href =
-      "http://twitter.com/" + CITY_DATA[cityId].authorTwitter;
+      "https://twitter.com/" + CITY_DATA[cityId].authorTwitter;
     document.querySelector("footer .author a").innerHTML =
       "@" + CITY_DATA[cityId].authorTwitter;
     document.querySelector("footer .author").classList.add("visible");
@@ -2048,7 +2051,7 @@ function prepareLocationList() {
 
       el.setAttribute("city-id", id);
 
-      var html = '<a href="' + id + '">';
+      var html = '<a href="?' + id + '">';
 
       html += cityData.longLocationName || cityData.locationName;
       if (cityData.annotation) {
@@ -2094,15 +2097,6 @@ function getEnvironmentInfo() {
     smallNeighborhoodThreshold = SMALL_NEIGHBORHOOD_THRESHOLD_TOUCH;
   } else {
     smallNeighborhoodThreshold = SMALL_NEIGHBORHOOD_THRESHOLD_MOUSE;
-  }
-}
-
-function removeHttpsIfPresent() {
-  // Gets out of HTTPS to do HTTP, because D3 doesn’t allow linking via
-  // HTTPS. But there’s a better way to deal with all of this, I feel
-  // (hosting our own copy of D3?).
-  if (location.protocol == "https:") {
-    location.replace(location.href.replace(/https:\/\//, "http://"));
   }
 }
 
@@ -2240,8 +2234,6 @@ function browserIsOkay() {
 }
 
 function main() {
-  removeHttpsIfPresent();
-
   if (testBrowser()) {
     browserIsOkay();
   }
