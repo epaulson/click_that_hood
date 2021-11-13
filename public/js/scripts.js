@@ -42,6 +42,7 @@ var POINT_SCALE = 75000;
 var MIN_POINT_RADIUS = 16;
 
 var MAPBOX_MAP_ID = "codeforamerica.map-mx0iqvk2";
+var MAPBOX_ACCESS_TOKEN = 'REPLACE_WITH_YOUR_KEY_HERE';
 
 var ADD_YOUR_CITY_URL =
   "https://github.com/codeforgermany/click_that_hood/wiki/How-to-add-a-city-to-Click-That-%E2%80%99Hood";
@@ -349,9 +350,8 @@ function findBoundaries() {
 
 function calculateMapSize() {
   if (mainMenu) {
-    geoMapPath = d3.geo.path().projection(
-      d3.geo
-        .mercator()
+    geoMapPath = d3.geoPath().projection(
+      d3.geoMercator()
         .center([0, 0])
         .scale(640 / 6.3)
         .translate([256 + 512 + 213 - 88 + (mapWidth % 640) / 2 - 621 / 2, 256])
@@ -443,7 +443,8 @@ function calculateMapSize() {
         MAPS_DEFAULT_SCALE;
     }
 
-    projection = d3.geo.mercator();
+    projection = d3.geoMercator();
+    
     switch (mapHorizontalOffset) {
       case MAP_HORIZONTAL_OFFSET_NORMAL:
         projection = projection.center([centerLon, centerLat]);
@@ -454,11 +455,12 @@ function calculateMapSize() {
           .rotate([180, 0]);
         break;
     }
-    projection = projection
+    /*projection = projection
       .scale(globalScale / 6.3)
-      .translate([mapWidth / 2, mapHeight / 2]);
+      .translate([mapWidth / 2, mapHeight / 2]); */
+    projection = projection.fitSize([mapWidth, mapHeight], geoData);
 
-    geoMapPath = d3.geo.path().projection(projection);
+    geoMapPath = d3.geoPath().projection(projection);
   }
 }
 
@@ -678,9 +680,9 @@ function updateCount() {
 function prepareMainMenuMapBackground() {
   updateCanvasSize();
 
-  if (typeof mapbox != "undefined") {
-    var layer = mapbox.layer().id(MAPBOX_MAP_ID);
-    var map = mapbox.map(
+  if (typeof mapboxgl != "undefined") {
+    //var layer = mapbox.layer().id(MAPBOX_MAP_ID);
+    /*var map = mapbox.map(
       document.querySelector("#maps-background"),
       layer,
       null,
@@ -691,11 +693,22 @@ function prepareMainMenuMapBackground() {
       y: Math.round(320 / pixelRatio),
     };
     map.centerzoom({ lat: 26 + 7, lon: 63 - 13 }, pixelRatio);
+  }*/
+  mapboxgl.accessToken = MAPBOX_ACCESS_TOKEN;
+  map = new mapboxgl.Map({
+    container: 'maps-background',
+    style: 'mapbox://styles/mapbox/satellite-v9',
+    center: [50, 33],
+    zoom: pixelRatio});
   }
 
   lastMapWidth = document.querySelector("#maps-background").offsetWidth;
 
-  if (typeof mapbox != "undefined") {
+  /* 
+   * This doesn't seem to be necessary anymore - maybe mapbox.js 0.6.7 didn't keep the map
+      centered? but it seems to stay centered in mapboxgl. 
+      But we if we do need it, we have to switch this code to be map.on("resize", function(event) {})
+  if (typeof mapboxgl != "undefined") {
     // This keeps the map centered on the homepage
     map.addCallback("resized", function (map, dimensions) {
       var width = dimensions[0].x;
@@ -703,7 +716,7 @@ function prepareMainMenuMapBackground() {
       map.panBy(-Math.floor(delta / 2), 0);
       lastMapWidth += Math.floor(delta / 2) * 2;
     });
-  }
+  } */
 }
 
 function isString(obj) {
@@ -1691,7 +1704,6 @@ function prepareMapBackground() {
   if (!geoDataLoaded) {
     return;
   }
-
   updateCanvasSize();
 
   // TODO this is the worst line of code ever written
@@ -1708,14 +1720,14 @@ function prepareMapBackground() {
   // TODO resize properly instead of recreating every single time
   document.querySelector("#maps-background").innerHTML = "";
 
-  if (typeof mapbox != "undefined") {
-    var layer = mapbox.layer().id(MAPBOX_MAP_ID);
+  if (typeof mapboxgl != "undefined") {
+    /*var layer = mapbox.layer().id(MAPBOX_MAP_ID);
     var map = mapbox.map(
       document.querySelector("#maps-background"),
       layer,
       null,
       []
-    );
+    );*/
 
     if (pixelRatio == 2) {
       zoom++;
@@ -1737,26 +1749,56 @@ function prepareMapBackground() {
       size *= 2;
     }
 
+/*
     map.tileSize = {
       x: Math.round(size / pixelRatio),
       y: Math.round(size / pixelRatio),
-    };
+    };*/
 
     var tile = latToTile(centerLat, zoom);
-    var longStep = ((tileToLon(1, zoom) - tileToLon(0, zoom)) / 256) * 128;
+   // var longStep = ((tileToLon(1, zoom) - tileToLon(0, zoom)) / 256) * 128;
+    //var latStep =
+     // ((tileToLat(tile + 1, zoom) - tileToLat(tile, zoom)) / 256) * 128;
+    
+    var longStep = ((tileToLon(1, zoom) - tileToLon(0, zoom)) / 512) * 256;
     var latStep =
-      ((tileToLat(tile + 1, zoom) - tileToLat(tile, zoom)) / 256) * 128;
+        ((tileToLat(tile + 1, zoom) - tileToLat(tile, zoom)) / 512) * 256;
+  
 
     var lat = centerLat;
     var lon = centerLon;
 
     var leftMargin = BODY_MARGIN * 2 + HEADER_WIDTH;
 
-    var ratio = leftMargin / map.tileSize.x;
+    // we don't have map.tileSize.x here anymore
+    //var ratio = leftMargin / map.tileSize.x
+    var ratio = leftMargin / Math.round(size / pixelRatio);
 
+
+    // we don't use ratio or longStep or latStep anymore
     lon -= ratio * longStep;
 
-    map.centerzoom({ lat: lat, lon: lon }, zoom);
+    mapboxgl.accessToken = MAPBOX_ACCESS_TOKEN;
+    map = new mapboxgl.Map({
+      container: 'maps-background',
+      style: 'mapbox://styles/mapbox/satellite-v9',
+      center: [centerLon, centerLat],
+      zoom: zoom});
+    
+    // from https://stackoverflow.com/questions/35586360/mapbox-gl-js-getbounds-fitbounds
+    // note: turf.js is kinda big, their own docs say 
+    // "The full build of Turf weighs around 500kb which is a fair bit of javascript to load so you probably only want to pull in the bits you need, see the instructions below on how to create a custom build.
+    // https://turfjs.org/getting-started
+
+    var bounds = turf.bbox(geoData);
+    map.fitBounds(bounds, {padding: {left: (BODY_MARGIN * 2 + HEADER_WIDTH), top: MAP_VERT_PADDING, bottom: MAP_VERT_PADDING}});
+
+    // for debugging, kind of helpful
+    map.addControl(new mapboxgl.NavigationControl(), 'top-left');
+
+    // I don't think we need this anymore
+    lastMapWidth = document.querySelector("#maps-background").offsetWidth;
+
   }
 }
 
