@@ -1836,9 +1836,8 @@ function onResize() {
           .selectAll("path")
           .attr(
             "d",
-            d3.svg
-              .symbol()
-              .type("square")
+            d3.symbol()
+              .type(d3.symbolSquare)
               .size(radius * radius)
           )
           .attr("point", true)
