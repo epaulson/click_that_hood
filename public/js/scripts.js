@@ -28,7 +28,7 @@ var SMALL_NEIGHBORHOOD_THRESHOLD_TOUCH = 30;
 var HEADER_WIDTH = 320;
 var BODY_MARGIN = 15;
 
-var MAP_VERT_PADDING = 50;
+var MAP_VERT_PADDING = 100;
 var MAIN_MENU_HEIGHT = 350;
 
 var MAIN_MENU_MIN_FIXED_HEIGHT = 600;
@@ -65,6 +65,7 @@ var neighborhoodToBeGuessedLast;
 var neighborhoodToBeGuessedNext;
 
 var geoData;
+var geoBoundsObj;
 var geoMapPath;
 
 var mapClickable = false;
@@ -389,7 +390,7 @@ function calculateMapSize() {
       -latStep;
 
     // TODO this shouldn’t be hardcoded, but it is. Sue me.
-
+/*
     switch (cityId) {
       case "africa":
         globalScale *= 0.8;
@@ -431,7 +432,7 @@ function calculateMapSize() {
       case "world":
         globalScale *= 0.6;
         break;
-    }
+    }*/
 
     // Calculate width according to that scale
     var width =
@@ -443,6 +444,64 @@ function calculateMapSize() {
         MAPS_DEFAULT_SCALE;
     }
 
+    // Basically nothing uses globalScale anymore, EXCEPT the code the calculates how big
+    // the markers should be for "point" maps, like the airports. Othewise most of the code
+    // above could be removed.
+
+
+
+    // Some experiments to see what different libraries were calculating for 
+    // a bounding box. Leaving it around for reference.
+    /*
+    var bounds = turf.bbox(geoData);
+    var d3bounds = d3.geoBounds(geoData);
+    console.log("Turfjs: " + bounds[0] + " " + bounds[1] + " " + bounds[2] + " " + bounds[3]);
+    console.log("native: " + boundaries.minLon + " " + boundaries.minLat + " " + boundaries.maxLon + " " + boundaries.maxLat);
+    console.log("d3: " + d3bounds);
+    */
+
+    //sw = [boundaries.minLat, boundaries.minLon];
+    //ne = [boundaries.maxLat, boundaries.maxLon];
+    //nw = [boundaries.maxLat, boundaries.minLon];
+    //se = [boundaries.minLat, boundaries.maxLon];
+
+    /* mapbox.js has a handy 'pad' function, but mapboxgl doesn't have it. 
+       The meat of the code from the leaflet "pad" function:
+          heightBuffer = Math.abs(sw.lat - ne.lat) * bufferRatio,
+	        widthBuffer = Math.abs(sw.lng - ne.lng) * bufferRatio;
+          return new LatLngBounds(
+            new LatLng(sw.lat - heightBuffer, sw.lng - widthBuffer),
+            new LatLng(ne.lat + heightBuffer, ne.lng + widthBuffer));
+    */
+
+    // We expand the bounding box of point-only maps, because if we
+    // don't, the marker(s) on the boundary get cut off. 
+    if (CITY_DATA[cityId].pointsInsteadOfPolygons) {
+      bufferRatio = 0.05;
+    } else {
+      bufferRatio = 0.0;
+    }
+    heightBuffer = Math.abs(boundaries.minLat - boundaries.maxLat) * bufferRatio,
+		widthBuffer = Math.abs(boundaries.minLon - boundaries.maxLon) * bufferRatio;
+
+    new_minlon = boundaries.minLon - heightBuffer;
+    new_minlat = boundaries.minLat - widthBuffer;
+    new_maxlon = boundaries.maxLon + heightBuffer;
+    new_maxlat = boundaries.maxLat + widthBuffer;
+
+
+    // clip at 75 N and S. The mercator projection distortion
+    // is pretty extreme - the european maps that include Svalbard
+    // make the bulk of europe hard to read, and russia/asia don't
+    // center right if they go too far north - i think d3 and mapbox
+    // do something slightly different internally. 
+    if(new_minlat < -75.0 ) { new_minlat = -75.0;}
+    if(new_maxlat > 75.0) { new_maxlat = 75.0;}
+
+    centerLat = (new_minlat + new_maxlat) / 2;
+    centerLon = (new_minlon + new_maxlon) / 2;
+
+    newbounds = [new_minlon, new_minlat, new_maxlon, new_maxlat];
     projection = d3.geoMercator();
     
     switch (mapHorizontalOffset) {
@@ -458,8 +517,32 @@ function calculateMapSize() {
     /*projection = projection
       .scale(globalScale / 6.3)
       .translate([mapWidth / 2, mapHeight / 2]); */
-    projection = projection.fitSize([mapWidth, mapHeight], geoData);
 
+    
+    if (CITY_DATA[cityId].pointsInsteadOfPolygons || CITY_DATA[cityId].convertPolygonsToPointsIfTooSmall) {
+      // We need an object to stand in for the bounding box for points, but for whatever reason bboxPolygon doesn't
+      // work - so from this stackoverflow - using a lingstring object instead of a bboxPolygon
+      // https://stackoverflow.com/questions/67258820/d3-fitsize-doesnt-fit-the-extent-as-expected-using-a-geojson-polygon
+      geoBoundsObj = turf.lineString([[newbounds[0], newbounds[1]], [newbounds[2], newbounds[3]]]);
+    } else if (cityId != "africa") {
+      // A slight hack - we're going to clip the geometry for each feature
+      // but the bboxClip function doesn't (yet) support GeometryCollection types
+      // see https://github.com/Turfjs/turf/issues/1565
+      // but for now, only the africa data has a GeometryCollection, and it's 
+      // position doesn't really to be clipped, so just skip it for clipping
+      newGeoData = turf.featureCollection([]);
+      turf.featureEach(geoData, function(f, i) { 
+        x = turf.bboxClip(f, newbounds);
+        newGeoData.features.push(x);
+      })
+      geoData = newGeoData;
+      geoBoundsObj = newGeoData;
+    } else {
+      // This is only 'africa'
+      geoBoundsObj = geoData;
+    }
+
+    projection = projection.fitSize([mapWidth, mapHeight], geoBoundsObj);
     geoMapPath = d3.geoPath().projection(projection);
   }
 }
@@ -626,9 +709,8 @@ function removeSmallNeighborhoods() {
         el.setAttribute("origD", el.getAttribute("d"));
         el.setAttribute(
           "d",
-          d3.svg
-            .symbol()
-            .type("square")
+          d3.symbol()
+            .type(d3.symbolSquare)
             .size(radius * radius)()
         );
         el.setAttribute("point", true);
@@ -1779,22 +1861,28 @@ function prepareMapBackground() {
     lon -= ratio * longStep;
 
     mapboxgl.accessToken = MAPBOX_ACCESS_TOKEN;
-    map = new mapboxgl.Map({
-      container: 'maps-background',
-      style: 'mapbox://styles/mapbox/satellite-v9',
-      center: [centerLon, centerLat],
-      zoom: zoom});
     
     // from https://stackoverflow.com/questions/35586360/mapbox-gl-js-getbounds-fitbounds
     // note: turf.js is kinda big, their own docs say 
     // "The full build of Turf weighs around 500kb which is a fair bit of javascript to load so you probably only want to pull in the bits you need, see the instructions below on how to create a custom build.
     // https://turfjs.org/getting-started
 
-    var bounds = turf.bbox(geoData);
-    map.fitBounds(bounds, {padding: {left: (BODY_MARGIN * 2 + HEADER_WIDTH), top: MAP_VERT_PADDING, bottom: MAP_VERT_PADDING}});
+    tempbounds = turf.bbox(geoBoundsObj);
+    //tempbounds = d3.geoBounds(geoBoundsObj);
 
-    // for debugging, kind of helpful
-    map.addControl(new mapboxgl.NavigationControl(), 'top-left');
+    // by settings bounds when we create the map, it overrides anything we might have
+    // provided for centering/zooming, so we don' provide that anymore
+    map = new mapboxgl.Map({
+      container: 'maps-background',
+      style: 'mapbox://styles/mapbox/satellite-v9',
+      bounds: tempbounds,
+      fitBoundsOptions: {padding: {left: (BODY_MARGIN * 2 + HEADER_WIDTH), top: MAP_VERT_PADDING, bottom: MAP_VERT_PADDING}},
+      interactive: false
+    });
+
+    // for debugging, kind of helpful - remember to remove the 'interactive'
+    // part above
+    // map.addControl(new mapboxgl.NavigationControl(), 'top-left');
 
     // I don't think we need this anymore
     lastMapWidth = document.querySelector("#maps-background").offsetWidth;

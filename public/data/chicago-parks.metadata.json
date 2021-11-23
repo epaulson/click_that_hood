@@ -3,5 +3,5 @@
   "stateName": "IL",
   "annotation": "Parks",
   "neighborhoodNoun": ["park", "parks"],
-  "convertPolygonsToPointsIfTooSmall": true
+  "convertPolygonsToPointsIfTooSmall": false
 }
