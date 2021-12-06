@@ -42,7 +42,7 @@ var POINT_SCALE = 75000;
 var MIN_POINT_RADIUS = 16;
 
 var MAPBOX_MAP_ID = "codeforamerica.map-mx0iqvk2";
-var MAPBOX_ACCESS_TOKEN = 'REPLACE_WITH_YOUR_KEY_HERE';
+var MAPBOX_ACCESS_TOKEN = 'pk.eyJ1IjoiZXBhdWxzb24iLCJhIjoiY2t2bzVkcHRpMWJlazJucW41YndqYmZhMCJ9.nEyn_qkwrcwLi8T-jVFpew';
 
 var ADD_YOUR_CITY_URL =
   "https://github.com/codeforgermany/click_that_hood/wiki/How-to-add-a-city-to-Click-That-%E2%80%99Hood";
@@ -449,17 +449,6 @@ function calculateMapSize() {
     // above could be removed.
 
 
-
-    // Some experiments to see what different libraries were calculating for 
-    // a bounding box. Leaving it around for reference.
-    /*
-    var bounds = turf.bbox(geoData);
-    var d3bounds = d3.geoBounds(geoData);
-    console.log("Turfjs: " + bounds[0] + " " + bounds[1] + " " + bounds[2] + " " + bounds[3]);
-    console.log("native: " + boundaries.minLon + " " + boundaries.minLat + " " + boundaries.maxLon + " " + boundaries.maxLat);
-    console.log("d3: " + d3bounds);
-    */
-
     //sw = [boundaries.minLat, boundaries.minLon];
     //ne = [boundaries.maxLat, boundaries.maxLon];
     //nw = [boundaries.maxLat, boundaries.minLon];
@@ -495,13 +484,16 @@ function calculateMapSize() {
     // make the bulk of europe hard to read, and russia/asia don't
     // center right if they go too far north - i think d3 and mapbox
     // do something slightly different internally. 
-    if(new_minlat < -75.0 ) { new_minlat = -75.0;}
-    if(new_maxlat > 75.0) { new_maxlat = 75.0;}
-
+    if(CITY_DATA[cityId].minLat ) {
+      if(new_minlat < CITY_DATA[cityId].minLat ) { new_minlat = CITY_DATA[cityId].minLat;}
+    }
+    if(CITY_DATA[cityId].maxLat ) {
+      if(new_maxlat > CITY_DATA[cityId].maxLat ) { new_maxlat = CITY_DATA[cityId].maxLat;}
+    }
     centerLat = (new_minlat + new_maxlat) / 2;
     centerLon = (new_minlon + new_maxlon) / 2;
 
-    newbounds = [new_minlon, new_minlat, new_maxlon, new_maxlat];
+    newbounds = [new_minlon, new_minlat, new_maxlon, new_maxlat];  
     projection = d3.geoMercator();
     
     switch (mapHorizontalOffset) {
@@ -518,18 +510,20 @@ function calculateMapSize() {
       .scale(globalScale / 6.3)
       .translate([mapWidth / 2, mapHeight / 2]); */
 
-    
+    //
+    // Some of the maps need to use different bounding boxes that what would be computed from the data
+    //    
     if (CITY_DATA[cityId].pointsInsteadOfPolygons || CITY_DATA[cityId].convertPolygonsToPointsIfTooSmall) {
       // We need an object to stand in for the bounding box for points, but for whatever reason bboxPolygon doesn't
       // work - so from this stackoverflow - using a lingstring object instead of a bboxPolygon
       // https://stackoverflow.com/questions/67258820/d3-fitsize-doesnt-fit-the-extent-as-expected-using-a-geojson-polygon
       geoBoundsObj = turf.lineString([[newbounds[0], newbounds[1]], [newbounds[2], newbounds[3]]]);
-    } else if (cityId != "africa") {
-      // A slight hack - we're going to clip the geometry for each feature
-      // but the bboxClip function doesn't (yet) support GeometryCollection types
+    } else if ((CITY_DATA[cityId].minLat) || CITY_DATA[cityId].maxLat) {
+      // Note that the turfbox bboxClip function doesn't (yet) support GeometryCollection types
       // see https://github.com/Turfjs/turf/issues/1565
-      // but for now, only the africa data has a GeometryCollection, and it's 
-      // position doesn't really to be clipped, so just skip it for clipping
+      // but for now, only the africa data has a GeometryCollection,
+      // so we should be OK - most of the maps won't use this clipping feature - 
+      // only europe-1914 and -1938 are for now
       newGeoData = turf.featureCollection([]);
       turf.featureEach(geoData, function(f, i) { 
         x = turf.bboxClip(f, newbounds);
@@ -538,10 +532,13 @@ function calculateMapSize() {
       geoData = newGeoData;
       geoBoundsObj = newGeoData;
     } else {
-      // This is only 'africa'
+      // most of the time, we're going to compute the bounds off of the actual data
       geoBoundsObj = geoData;
     }
 
+    // todo - when the window gets too small, the maps that cross the antimeridian
+    // don't get placed/size right
+    //console.log("Map width: " + mapWidth + " Map Height: " + mapHeight);
     projection = projection.fitSize([mapWidth, mapHeight], geoBoundsObj);
     geoMapPath = d3.geoPath().projection(projection);
   }
@@ -1852,31 +1849,37 @@ function prepareMapBackground() {
 
     var leftMargin = BODY_MARGIN * 2 + HEADER_WIDTH;
 
+
     // we don't have map.tileSize.x here anymore
     //var ratio = leftMargin / map.tileSize.x
     var ratio = leftMargin / Math.round(size / pixelRatio);
 
 
-    // we don't use ratio or longStep or latStep anymore
+    // we mostly don't use ratio or longStep or latStep anymore
     lon -= ratio * longStep;
 
     mapboxgl.accessToken = MAPBOX_ACCESS_TOKEN;
     
-    // from https://stackoverflow.com/questions/35586360/mapbox-gl-js-getbounds-fitbounds
-    // note: turf.js is kinda big, their own docs say 
-    // "The full build of Turf weighs around 500kb which is a fair bit of javascript to load so you probably only want to pull in the bits you need, see the instructions below on how to create a custom build.
-    // https://turfjs.org/getting-started
+    // this was originally inspired by 
+    // https://stackoverflow.com/questions/35586360/mapbox-gl-js-getbounds-fitbounds
+    // but we're trying not to need turfbox
+    // d3 geobounds doesn't deal with the antimeridian
+    // but the internal findBoundaries for whatever reason has problems with Africa 
+    // The africa map is the only one that uses a GeometryCollection feature in the geojson
+    // so maybe a TODO to figure out why findBoundaries is a bit off for africa
 
-    tempbounds = turf.bbox(geoBoundsObj);
-    //tempbounds = d3.geoBounds(geoBoundsObj);
+    tempboundaries = findBoundaries();
+    geoBounds = [tempboundaries.minLon, tempboundaries.minLat, tempboundaries.maxLon, tempboundaries.maxLat];
+    if(cityId === "africa") {geoBounds = d3.geoBounds(geoBoundsObj); }
 
+    console.log(geoBounds);
     // by settings bounds when we create the map, it overrides anything we might have
     // provided for centering/zooming, so we don' provide that anymore
     map = new mapboxgl.Map({
       container: 'maps-background',
       style: 'mapbox://styles/mapbox/satellite-v9',
-      bounds: tempbounds,
-      fitBoundsOptions: {padding: {left: (BODY_MARGIN * 2 + HEADER_WIDTH), top: MAP_VERT_PADDING, bottom: MAP_VERT_PADDING}},
+      bounds: geoBounds,
+      fitBoundsOptions: {padding: {left: ((BODY_MARGIN * 2)+ HEADER_WIDTH), top: MAP_VERT_PADDING, bottom: MAP_VERT_PADDING, right: 0}},
       interactive: false
     });
 
