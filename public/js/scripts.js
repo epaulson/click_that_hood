@@ -442,7 +442,9 @@ function calculateMapSize() {
       globalScale =
         (((D3_DEFAULT_SCALE * 360) / lonSpread) * mapWidth) /
         MAPS_DEFAULT_SCALE;
+      //console.log("width is greater than mapwidth!: " + width + " " + mapWidth);
     }
+
 
     // Basically nothing uses globalScale anymore, EXCEPT the code the calculates how big
     // the markers should be for "point" maps, like the airports. Othewise most of the code
@@ -541,6 +543,8 @@ function calculateMapSize() {
     //console.log("Map width: " + mapWidth + " Map Height: " + mapHeight);
     projection = projection.fitSize([mapWidth, mapHeight], geoBoundsObj);
     geoMapPath = d3.geoPath().projection(projection);
+    //projected_bounds = geoMapPath.bounds(geoData);
+    //console.log(projected_bounds);
   }
 }
 
@@ -1872,7 +1876,6 @@ function prepareMapBackground() {
     geoBounds = [tempboundaries.minLon, tempboundaries.minLat, tempboundaries.maxLon, tempboundaries.maxLat];
     if(cityId === "africa") {geoBounds = d3.geoBounds(geoBoundsObj); }
 
-    console.log(geoBounds);
     // by settings bounds when we create the map, it overrides anything we might have
     // provided for centering/zooming, so we don' provide that anymore
     map = new mapboxgl.Map({
